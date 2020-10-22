@@ -12,7 +12,7 @@ Plugin Name: Restricted Login for WordPress
 Plugin URI: https://github.com/schrauger/restricted-login-for-wordpress
 Description: Allow admins and super admins, but block everyone else from logging in unless they are added to a whitelist.
 			 This is useful for copying a production site to a development area where you don't want users to be able to login to the dev environment.
-Version: 1.0
+Version: 0.1
 Author: Stephen Schrauger
 Author URI: https://www.schrauger.com/
 License: GPLv2 or later
@@ -47,12 +47,14 @@ class admin_only_login {
 		) ); //call the 'uninstall' function when plugin is uninstalled completely
 
 		// Register the 'settings' page
-		add_action( 'admin_menu', array( $this, 'add_plugin_page' ) );
-		add_action( 'network_admin_menu', array($this,'add_plugin_page') ); // adds converter settings page
+//		add_action( 'admin_menu', array( $this, 'add_plugin_page' ) );
+//		add_action( 'network_admin_menu', array($this,'add_plugin_page') ); // adds converter settings page
+//      add_action( 'admin_init', array($this, 'admin_init'));
+//		add_action( 'admin_post_update_my_settings',  array($this, 'update_my_settings'));
 
-
+		add_action( 'init', array($this, 'logout_users'));
 		// Add a link from the plugin page to this plugin's settings page
-		add_filter( 'plugin_row_meta', array( $this, 'plugin_action_links' ), 10, 2 );
+//		add_filter( 'plugin_row_meta', array( $this, 'plugin_action_links' ), 10, 2 );
 
 	}
 
@@ -74,8 +76,9 @@ class admin_only_login {
 	public function logout_users() {
 		// logout all non-admin users
 		// added 2020-09-22 10:00am
+		$block_login = true;
+
 		if ( is_user_logged_in()) {
-			$block_login = true;
 
 			// network admins must always be allowed to login
 			if ( is_super_admin()){
@@ -150,50 +153,88 @@ class admin_only_login {
 
 	public function options_page_site_contents(){
 	    $this->is_network = false;
-		$this->options_page_contents();
+		$this->options_page_contents_site();
 	}
 
     public function options_page_network_contents() {
 	    $this->is_network = true;
-	    $this->options_page_contents();
+	    $this->options_page_contents_network();
     }
 
 	/**
 	 * Tells WordPress how to output the page
 	 */
-	public function options_page_contents() {
+	public function options_page_contents_site() {
 		?>
-		<div class="wrap" >
+        <div class="wrap" >
 
-			<h2 ><?php echo self::page_title ?></h2 >
+            <h2 ><?php echo self::page_title ?></h2 >
 
-			<form method="post" action="options.php" >
+            <form method="post" action="options.php" >
 				<?php
 				// This prints out all hidden setting fields
 				settings_fields( self::option_group_name );
 				do_settings_sections( $this->is_network ? self::page_network_slug : self::page_site_slug );
 				submit_button();
 				?>
-			</form >
-		</div >
+            </form >
+        </div >
+		<?php
+	}
+	/**
+	 * Tells WordPress how to output the page
+	 */
+	public function options_page_contents_network() {
+		?>
+        <div class="wrap" >
+
+            <h2 ><?php echo self::page_title ?></h2 >
+
+            <form method="post" action="settings.php" >
+				<?php
+				// This prints out all hidden setting fields
+				settings_fields( self::option_group_name );
+				do_settings_sections( $this->is_network ? self::page_network_slug : self::page_site_slug );
+				submit_button();
+				?>
+            </form >
+        </div >
 		<?php
 	}
 
-	/**
-	 * Add the settings section for both built-in and custom post types (to distinguish between the two)
-	 * @return mixed
-	 */
+	function update_my_settings(){
+		check_admin_referer('your_plugin_nonce');
+		if(!current_user_can('manage_network_options')) wp_die('FU');
+
+		// process your fields from $_POST here and update_site_option
+
+		wp_redirect(admin_url('network/settings.php?page=my-netw-settings'));
+		exit;
+	}
+
+
+	public function admin_init() {
+
+		$this->add_settings_section();
+		$this->add_setting_network_admin();
+
+//		$this->posttypes = get_post_types('', 'objects');
+//		foreach ($this->posttypes as $post_object) {
+//			$this->add_setting($post_object);
+//		}
+	}
+
 	public function add_settings_section() {
 
 		add_settings_section(
 			self::section_admin,
-			"Built-in WordPress Post Types", // start of section text shown to user
+			"Admins", // start of section text shown to user
 			"Caution",
 			self::page_network_slug
 		);
 		add_settings_section(
 			self::section_userlist,
-			"Custom Post Types",
+			"Whitelisted Users",
 			"No caution",
 			self::page_site_slug
 		);
@@ -201,7 +242,7 @@ class admin_only_login {
 
 	public function add_setting_network_admin(){
 		add_settings_field(
-			$setting_id,  // Unique ID used to identify the field
+			'standard-admin-block',  // Unique ID used to identify the field
 			"BLOCK site admins from logging their sites",  // The label to the left of the option.
 			array(
 				$this,
@@ -210,10 +251,10 @@ class admin_only_login {
 			self::page_network_slug,                         // The page on which this option will be displayed
 			self::section_admin,         // The name of the section to which this field belongs
 			array(   // The array of arguments to pass to the callback. These 4 are referenced in setting_input_checkbox.
-			         'id'      => $setting_id, // copy/paste id here
-			         'label'   => "Hide " . $post_object->label,
-			         'section' => $this->get_proper_section($post_object),
-			         'value'   => $this->get_database_settings_value( $post_object )
+			         'id'      => 'standard-admin-block', // copy/paste id here
+			         'label'   => "Prevent standard site admins from logging in",
+			         'section' => self::page_network_slug,
+			         'value'   => esc_attr(get_option(self::section_admin)['standard-admin-block']),
 			)
 		);
 		register_setting(
@@ -223,203 +264,18 @@ class admin_only_login {
 		);
     }
 
-}
-new admin_only_login();
-
-/**
- * Settings|config page for plugin
- */
-class hide_post_types_settingszz {
-
-	const option_group_name = 'hide-post-types-settings-group';
-
-	const section_builtin     = 'hide-post-types-builtin';
-	const section_custom      = 'hide-post-types-custom';
-
-	const page_title        = 'Hide Post Types Settings'; //
-	const menu_title        = 'Hide Post Types Settings';
-	const capability        = 'manage_options'; // user capability required to view the page
-	const page_slug         = 'hide-post-types-settings'; // unique page name, also called menu_slug
-
-	public $posttypes;
-	private $posttypes_wp_builtin = array('post','page','attachment','revision','nav_menu_item'); // built-in (since WP 3.0)
-	private $posttypes_wp_builtin_exclude = array('revision','nav_menu_item'); // these two aren't normal types, and hiding does nothing.
-
-	public function __construct() {
-		register_activation_hook( __FILE__, array(
-			$this,
-			'on_activation'
-		) ); //call the 'on_activation' function when plugin is first activated
-		register_deactivation_hook( __FILE__, array(
-			$this,
-			'on_deactivation'
-		) ); //call the 'on_deactivation' function when plugin is deactivated
-		register_uninstall_hook( __FILE__, array(
-			$this,
-			'on_uninstall'
-		) ); //call the 'uninstall' function when plugin is uninstalled completely
-
-		// Register the 'settings' page
-		add_action( 'admin_menu', array( $this, 'add_plugin_page' ) );
-		add_action( 'admin_menu', array( $this, 'admin_menu_init' ) );
-		add_action( 'admin_init', array( $this, 'admin_init' ) );
-		add_action( 'wp_loaded', array( $this, 'page_init' ) );
-
-		// Add a link from the plugin page to this plugin's settings page
-		add_filter( 'plugin_row_meta', array( $this, 'plugin_action_links' ), 10, 2 );
-
-	}
-
 	/**
-	 * Function that is run when the plugin is activated via the plugins page
-	 */
-	public function on_activation() {
-		// stub
-	}
-
-	public function on_deactivation() {
-		// stub
-	}
-
-	public function on_uninstall() {
-		// stub
-	}
-
-
-
-	/**
-	 * Adds a link to this plugin's setting page directly on the WordPress plugin list page
+	 * Grabs the database value for the $settings_id option. The value is stored in a serialized array in the database.
+	 * It returns the value after sanitizing it.
 	 *
-	 * @param $links
-	 * @param $file
+	 * @param $setting_object
 	 *
-	 * @return array
+	 * @return string|void
 	 */
-	public function plugin_action_links( $links, $file ) {
-		if ( strpos( __FILE__, $file ) !== false ) {
-			$links = array_merge(
-				$links,
-				array(
-					'settings' => '<a href="' . admin_url( 'options-general.php?page=' . self::page_slug ) . '">' . __( 'Settings', self::page_slug ) . '</a>'
-				)
-			);
-		}
+	public function get_database_settings_value( $setting_object ) {
+		$data = get_option( $this->get_proper_section($setting_object) );
 
-		return $links;
-	}
-
-	/**
-	 * Tells WordPress about a new page and what function to call to create it
-	 */
-	public function add_plugin_page() {
-		// This page will be under "Settings" menu. add_options_page is merely a WP wrapper for add_submenu_page specifying the 'options-general' menu as parent
-		add_options_page(
-			self::page_title,
-			self::menu_title,
-			self::capability,
-			self::page_slug,
-			array(
-				$this,
-				'create_settings_page'
-			) // since we are putting settings on our own page, we also have to define how to print out the settings
-		);
-	}
-
-	/**
-	 * Get all post types and create settings for them
-	 */
-	public function admin_init() {
-
-		$this->add_settings_section();
-
-		$this->posttypes = get_post_types('', 'objects');
-		foreach ($this->posttypes as $post_object) {
-			$this->add_setting($post_object);
-		}
-	}
-
-	/**
-	 * Adds a checkbox field for each post type
-	 *
-	 * @param string $post_object
-	 */
-	public function add_setting( $post_object ) {
-		// add setting, and register it
-
-		$setting_id = $this->unique_setting_id($post_object);
-		add_settings_field(
-			$setting_id,  // Unique ID used to identify the field
-			$post_object->name,  // The label to the left of the option.
-			array(
-				$this,
-				'settings_input_checkbox'
-			),   // The name of the function responsible for rendering the option interface
-			self::page_slug,                         // The page on which this option will be displayed
-			$this->get_proper_section($post_object),         // The name of the section to which this field belongs
-			array(   // The array of arguments to pass to the callback. These 4 are referenced in setting_input_checkbox.
-			         'id'      => $setting_id, // copy/paste id here
-			         'label'   => "Hide " . $post_object->label,
-			         'section' => $this->get_proper_section($post_object),
-			         'value'   => $this->get_database_settings_value( $post_object )
-			)
-		);
-		register_setting(
-			self::option_group_name,
-			$this->get_proper_section($post_object)
-		//array( $this, 'sanitize' ) // sanitize function
-		);
-
-	}
-
-	/**
-	 * A unique identifier to save in the database. This uses the setting group plus the post slug.
-	 * @param $post_object
-	 *
-	 * @return string
-	 */
-	public function unique_setting_id($post_object){
-		return self::option_group_name . '-' . $post_object->name;
-	}
-
-	/**
-	 * Returns the correct section for a specific setting based on the post type slug.
-	 * Basically, if the $setting_slug is a built-in post type, it will return the "built-in"
-	 * section. Otherwise, it will return the "custom" section.
-	 *
-	 * @param $post_object
-	 *
-	 * @return string The section this preference should be sorted under.
-	 */
-	public function get_proper_section($post_object){
-		if (in_array($post_object->name, $this->posttypes_wp_builtin)) {
-			if (in_array($post_object->name, $this->posttypes_wp_builtin_exclude)){
-				return null; // a null section will cause the option to not show up in the preferences page.
-			} else {
-				return self::section_builtin;
-			}
-		} else {
-			return self::section_custom;
-		}
-	}
-
-	/**
-	 * Add the settings section for both built-in and custom post types (to distinguish between the two)
-	 * @return mixed
-	 */
-	public function add_settings_section() {
-
-		add_settings_section(
-			self::section_builtin,
-			"Built-in WordPress Post Types", // start of section text shown to user
-			"Caution",
-			self::page_slug
-		);
-		add_settings_section(
-			self::section_custom,
-			"Custom Post Types",
-			"No caution",
-			self::page_slug
-		);
+		return esc_attr( $data[ $this->unique_setting_id($setting_object) ] );
 	}
 
 	/**
@@ -455,133 +311,5 @@ class hide_post_types_settingszz {
 		echo $html;
 	}
 
-	/**
-	 * Grabs the database value for the $settings_id option. The value is stored in a serialized array in the database.
-	 * It returns the value after sanitizing it.
-	 *
-	 * @param $setting_object
-	 *
-	 * @return string|void
-	 */
-	public function get_database_settings_value( $setting_object ) {
-		$data = get_option( $this->get_proper_section($setting_object) );
-
-		return esc_attr( $data[ $this->unique_setting_id($setting_object) ] );
-	}
-
-	/**
-	 * On every page load, disable the post types specified.
-	 */
-	public function page_init() {
-		$this->posttypes = get_post_types('', 'objects');
-		foreach ($this->posttypes as $post_object) {
-			// get setting
-			// if set to hide, then hide
-			if ($this->get_database_settings_value( $post_object )) {
-				$this->unregister_post_type($post_object->name);
-			}
-		}
-	}
-
-	/**
-	 * On every page load, disable the post types specified.
-	 */
-	public function admin_menu_init() {
-		$this->posttypes = get_post_types('', 'objects');
-		foreach ($this->posttypes as $post_object) {
-			// get setting
-			// if set to hide, then hide
-			if ($this->get_database_settings_value( $post_object )) {
-				$this->hide_post_menu($post_object->name);
-			}
-		}
-	}
-
-	/**
-	 * Removes the specified post type.
-	 * This function does not 'unset' the post type,
-	 * because then the preference page (which loads after this function in add_action order (unavoidable))
-	 * would not know about the post types. Thus leading to the inability
-	 * to restore the post type that is hidden.
-	 *
-	 * @param $post_type_slug
-	 *
-	 * @return bool
-	 */
-	function unregister_post_type( $post_type_slug ) {
-		//$post_type = 'post';
-		global $wp_post_types;
-		if ( isset( $wp_post_types[ $post_type_slug ] ) ) {
-			$wp_post_types[ $post_type_slug ] = new StdClass;
-			$wp_post_types[ $post_type_slug ]->public = false;
-			$wp_post_types[ $post_type_slug ]->exclude_from_search = true;
-			$wp_post_types[ $post_type_slug ]->publicly_queryable = false;
-			$wp_post_types[ $post_type_slug ]->show_in_nav_menus = false;
-			$wp_post_types[ $post_type_slug ]->show_ui = false;
-			$wp_post_types[ $post_type_slug ]->capabilities = new StdClass;
-			$wp_post_types[ $post_type_slug ]->capabilities->create_posts = false;
-			$wp_post_types[ $post_type_slug ]->map_meta_cap = false;
-
-			$wp_post_types[ $post_type_slug ]->show_ui = false;
-			$wp_post_types[ $post_type_slug ]->show_in_nav_menus = false;
-			$wp_post_types[ $post_type_slug ]->show_in_menu = false;
-			$wp_post_types[ $post_type_slug ]->show_in_admin_bar = false;
-
-			// built-in
-			//if ($post_type_slug == 'post') {
-			//remove_menu_page( 'edit.php' );
-			//}
-			//unset( $wp_post_types[ $post_type_slug ] );
-
-			return true;
-		}
-		return false;
-	}
-
-	/**
-	 * Removes the "Add New..." post menu
-	 * @param $post_type_slug
-	 */
-	function hide_post_menu( $post_type_slug ) {
-		global $submenu;
-		//echo "Removing menu " . $post_type_slug . "<br />";
-		//print_r($submenu);
-		//unset($submenu['post-new.php?post_type=' . $post_type_slug][10]);
-		if ($post_type_slug == 'post') {
-			remove_menu_page( 'edit.php' );
-		}
-		if ($post_type_slug == 'attachment') {
-			remove_menu_page( 'upload.php');
-		}
-		if ($post_type_slug == 'page') {
-			remove_menu_page( 'edit.php?post_type=page');
-		}
-	}
-
-	/**
-	 * Tells WordPress how to output the page
-	 */
-	public function create_settings_page() {
-		?>
-		<div class="wrap" >
-
-			<h2 ><?php echo self::page_title ?></h2 >
-
-			<form method="post" action="options.php" >
-				<?php
-				// This prints out all hidden setting fields
-				settings_fields( self::option_group_name );
-				do_settings_sections( self::page_slug );
-				submit_button();
-				?>
-			</form >
-		</div >
-		<?php
-	}
-
-
-
-
 }
-
-//new hide_post_types_settings();
+new admin_only_login();
